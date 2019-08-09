@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"os"
 
-	"nami/nami_ds/controllers/common"
+	"nami/nami_track/controllers/common"
 )
 
 func initLogFile() (f *os.File, err error) {

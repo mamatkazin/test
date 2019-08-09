@@ -2,18 +2,18 @@ package main
 
 import (
 	"fmt"
-	"html/template"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"time"
+
+	"github.com/go-pg/pg"
 
 	"github.com/gorilla/mux"
 
-	"nami/nami_ds/controllers/common"
-	"nami/nami_ds/controllers/cookies"
-	"nami/nami_ds/controllers/nami"
-	"nami/nami_ds/controllers/teams"
-	//	"nami/nami_ds/controllers/users"
+	"nami/nami_track/controllers/common"
 )
 
 func init() {
@@ -35,30 +35,7 @@ func main() {
 
 	sp := http.StripPrefix("/", http.FileServer(http.Dir("./")))
 
-	mx.HandleFunc("/", indexHandler)
-	mx.HandleFunc("/logout", logoutHandler)
-
-	mx.HandleFunc("/api/roads", roadsHandler)
-	mx.HandleFunc("/api/linemarkups", linemarkupsHandler)
-	mx.HandleFunc("/api/bufferzone", bufferzoneHandler)
-	mx.HandleFunc("/api/teams/{t_id}/track", teamsTrackHandler)
-
-	mx.HandleFunc("/nami", indexHandler)
-	mx.HandleFunc("/nami/", indexHandler)
-	mx.HandleFunc("/nami/{page}", indexHandler)
-	mx.HandleFunc("/nami/{page}/", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/{page}", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/{page}/", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/{page}/{page}", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/{page}/{page}/", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/{page}/{page}/{page}", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/{page}/{page}/{page}/", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/{page}/{page}/{page}/{page}", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/{page}/{page}/{page}/{page}/", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/{page}/{page}/{page}/{page}/{page}", indexHandler)
-	mx.HandleFunc("/nami/{page}/{page}/{page}/{page}/{page}/{page}/{page}/", indexHandler)
+	mx.HandleFunc("/api/track", trackHandler)
 
 	mx.PathPrefix("/").Handler(sp)
 
@@ -76,194 +53,54 @@ func main() {
 	}
 }
 
-func indexHandler(w http.ResponseWriter, r *http.Request) {
-	//w.Header().Set("Access-Control-Allow-Origin", "*")
+func trackHandler(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			w.Write(h_Recover(rec))
+			log.Printf("Error trackHandler: %v", rec.(error))
 		}
 	}()
 
 	var (
-		page *template.Template
-		err  error
+		bodyBytes []byte
+		err       error
+		bodySTR   string
+		str       []string
+		oID       int
 	)
 
-	if page, err = template.ParseFiles("app/index.html"); err != nil {
-		panic(common.ProcessingError(err.Error()))
+	if r.Method == "POST" {
+
+		if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
+			log.Printf("Error reading body: %v", err)
+		}
+
+		bodySTR = string(bodyBytes)
+
+		str = strings.Split(bodySTR, ";")
+
+		//fmt.Println("str", str[1], str[4], str[5], time.Now())
+
+		var (
+			db    *pg.DB
+			query string
+		)
+
+		if db, err = common.GetPGDB(0); err != nil {
+			fmt.Println(err.Error())
+			panic(common.ProcessingError(err.Error()))
+		}
+
+		defer db.Close()
+
+		query = "select o_ID from nami.fn_trackdata_ins(?,?,?,?)"
+
+		if _, err = db.QueryOne(pg.Scan(&oID), query, time.Now(), str[1], str[4], str[5]); err != nil {
+			fmt.Println(err.Error())
+			panic(common.ProcessingError(err.Error()))
+		}
+
+		//fmt.Println("oID", oID)
+
 	}
 
-	page.ExecuteTemplate(w, "index", nil)
-}
-
-func logoutHandler(w http.ResponseWriter, r *http.Request) {
-	cookieData := new(common.CookieData)
-	cookieData.UserID = -1
-	cookies.SetSession(*cookieData, w)
-	cookies.ClearSession(w)
-	http.Redirect(w, r, "/", 302)
-}
-
-func roadsHandler(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			w.Write(h_Recover(rec))
-		}
-	}()
-
-	var (
-		err        error
-		cookieData common.CookieData
-
-		access = true
-		data   = common.S_Data{Valid: true, Errors: make([]string, 0)}
-	)
-
-	cookieData = cookies.GetSession(r)
-
-	if common.G_CONFIG.RUN_MODE == "DEV" {
-		cookieData.UserID = 0
-	}
-
-	if cookieData.UserID != -1 {
-		if r.Method != "OPTIONS" {
-			if r.Method == "GET" {
-				if data.Items, err = nami.Roads(r); err != nil {
-					panic(err)
-				}
-			} else {
-				access = false
-			}
-		}
-
-		if err = h_WriteData(access, data, cookieData.UserID, w); err != nil {
-			panic(err)
-		}
-
-	} else {
-		w.WriteHeader(401)
-	}
-}
-
-func linemarkupsHandler(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			w.Write(h_Recover(rec))
-		}
-	}()
-
-	var (
-		err        error
-		cookieData common.CookieData
-
-		access = true
-		data   = common.S_Data{Valid: true, Errors: make([]string, 0)}
-	)
-
-	cookieData = cookies.GetSession(r)
-
-	if common.G_CONFIG.RUN_MODE == "DEV" {
-		cookieData.UserID = 0
-	}
-
-	if cookieData.UserID != -1 {
-		if r.Method != "OPTIONS" {
-			if r.Method == "GET" {
-				if data.Items, err = nami.Linemarkups(r); err != nil {
-					panic(err)
-				}
-			} else {
-				access = false
-			}
-		}
-
-		if err = h_WriteData(access, data, cookieData.UserID, w); err != nil {
-			panic(err)
-		}
-
-	} else {
-		w.WriteHeader(401)
-	}
-}
-
-func bufferzoneHandler(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			w.Write(h_Recover(rec))
-		}
-	}()
-
-	var (
-		err        error
-		cookieData common.CookieData
-
-		access = true
-		data   = common.S_Data{Valid: true, Errors: make([]string, 0)}
-	)
-
-	cookieData = cookies.GetSession(r)
-
-	if common.G_CONFIG.RUN_MODE == "DEV" {
-		cookieData.UserID = 0
-	}
-
-	if cookieData.UserID != -1 {
-		if r.Method != "OPTIONS" {
-			if r.Method == "GET" {
-				if data.Items, err = nami.Buffers(r); err != nil {
-					panic(err)
-				}
-			} else {
-				access = false
-			}
-		}
-
-		if err = h_WriteData(access, data, cookieData.UserID, w); err != nil {
-			panic(err)
-		}
-
-	} else {
-		w.WriteHeader(401)
-	}
-}
-
-func teamsTrackHandler(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			w.Write(h_Recover(rec))
-		}
-	}()
-
-	var (
-		err        error
-		cookieData common.CookieData
-
-		access = true
-		data   = common.S_Data{Valid: true, Errors: make([]string, 0)}
-	)
-
-	cookieData = cookies.GetSession(r)
-
-	if common.G_CONFIG.RUN_MODE == "DEV" {
-		cookieData.UserID = 0
-	}
-
-	if cookieData.UserID != -1 {
-		if r.Method != "OPTIONS" {
-			if r.Method == "GET" {
-				if data.Items, err = teams.Track(r); err != nil {
-					panic(err)
-				}
-			} else {
-				access = false
-			}
-		}
-
-		if err = h_WriteData(access, data, cookieData.UserID, w); err != nil {
-			panic(err)
-		}
-
-	} else {
-		w.WriteHeader(401)
-	}
 }
