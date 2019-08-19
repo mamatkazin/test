@@ -94,7 +94,7 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 
 		query = "select o_ID from nami.fn_trackdata_ins(?,?,?,?)"
 
-		if _, err = db.QueryOne(pg.Scan(&oID), query, time.Now(), str[1], str[4], str[5]); err != nil {
+		if _, err = db.QueryOne(pg.Scan(&oID), query, time.Now(), str[1], str[5], str[4]); err != nil {
 			fmt.Println(err.Error())
 			panic(common.ProcessingError(err.Error()))
 		}
