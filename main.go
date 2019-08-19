@@ -54,6 +54,7 @@ func main() {
 }
 
 func trackHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("API")
 	defer func() {
 		if rec := recover(); rec != nil {
 			log.Printf("Error trackHandler: %v", rec.(error))
@@ -78,11 +79,13 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 
 		str = strings.Split(bodySTR, ";")
 
-		//fmt.Println("str", str[1], str[4], str[5], time.Now())
+		fmt.Println("str", str[1], str[4], str[5], time.Now())
 
 		var (
 			db    *pg.DB
 			query string
+			tx    *pg.Tx
+			err   error
 		)
 
 		if db, err = common.GetPGDB(0); err != nil {
@@ -92,14 +95,22 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 
 		defer db.Close()
 
+		if tx, err = db.Begin(); err != nil {
+			panic(err.Error())
+		}
+
 		query = "select o_ID from nami.fn_trackdata_ins(?,?,?,?)"
 
-		if _, err = db.QueryOne(pg.Scan(&oID), query, time.Now(), str[1], str[4], str[5]); err != nil {
+		if _, err = tx.QueryOne(pg.Scan(&oID), query, time.Now(), str[1], str[4], str[5]); err != nil {
+			tx.Rollback()
 			fmt.Println(err.Error())
 			panic(common.ProcessingError(err.Error()))
 		}
 
-		//fmt.Println("oID", oID)
+		tx.Commit()
+
+		fmt.Println("oID", oID)
+		log.Printf("Reading oID: %v", oID)
 
 	}
 
