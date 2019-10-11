@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+
 	"strings"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 
 	"nami/nami_track/controllers/common"
 )
+
+var DB *pg.DB
 
 func init() {
 	if err := initConfigFile(); err != nil {
@@ -29,6 +33,13 @@ func main() {
 		f_log *os.File
 	)
 
+	if DB, err = common.GetPGDB(0); err != nil {
+		fmt.Println("GetPGDB", err)
+		panic(err.Error())
+	}
+
+	defer DB.Close()
+
 	log.Printf("success: port=%s\n", common.G_CONFIG.APP_PORT)
 
 	mx = mux.NewRouter()
@@ -36,6 +47,7 @@ func main() {
 	sp := http.StripPrefix("/", http.FileServer(http.Dir("./")))
 
 	mx.HandleFunc("/api/track", trackHandler)
+	mx.HandleFunc("/api/track/reserve", trackReserveHandler)
 
 	mx.PathPrefix("/").Handler(sp)
 
@@ -48,69 +60,153 @@ func main() {
 	err = http.ListenAndServe(common.G_CONFIG.APP_PORT, mx)
 
 	if err != nil {
-		fmt.Printf("panic: Не возможно запустить сервер. Ошибка: %s", err.Error())
+		common.ProcessingError("panic: Не возможно запустить сервер. Ошибка: " + err.Error())
 		return
 	}
 }
 
 func trackHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("API")
 	defer func() {
 		if rec := recover(); rec != nil {
-			log.Printf("Error trackHandler: %v", rec.(error))
+			common.ProcessingError("Error trackHandler: " + rec.(error).Error())
 		}
 	}()
 
 	var (
-		bodyBytes []byte
-		err       error
-		bodySTR   string
-		str       []string
-		oID       int
+		bodyBytes      []byte
+		err            error
+		bodySTR, query string
+		str            []string
+		oID, i         int64
+		tm             time.Time
+
+		tx *pg.Tx
 	)
 
-	if r.Method == "POST" {
+	//if r.Method == "POST" {
 
-		if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
-			log.Printf("Error reading body: %v", err)
-		}
+	if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
+		panic("Error reading body: " + err.Error())
+	}
 
-		bodySTR = string(bodyBytes)
+	bodySTR = string(bodyBytes)
 
-		str = strings.Split(bodySTR, ";")
+	str = strings.Split(bodySTR, ";")
 
-		fmt.Println("str", str[1], str[4], str[5], time.Now())
+	if i, err = strconv.ParseInt(str[0], 10, 64); err != nil {
+		panic(err.Error())
+	}
 
-		var (
-			db    *pg.DB
-			query string
-			tx    *pg.Tx
-			err   error
-		)
+	tm = time.Unix(i, 0)
 
-		if db, err = common.GetPGDB(0); err != nil {
-			fmt.Println(err.Error())
-			panic(common.ProcessingError(err.Error()))
-		}
+	if tx, err = DB.Begin(); err != nil {
+		panic(err.Error())
+	}
 
-		defer db.Close()
+	query = "select o_ID from nami.fn_trackdata_ins(?,?,?,?)"
 
-		if tx, err = db.Begin(); err != nil {
+	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_ins (
+	//   i_Time    timestamp,       -- время снятия показаний с прибора
+	//   i_MAC     varchar(30),     -- мак прибора
+	//   i_X       DOUBLE PRECISION,-- долгота
+	//   i_Y       DOUBLE PRECISION,-- широта
+	//   out o_ID  bigint           -- ид точки трека; (-1) если устройства нет в списке, (-2) время бьет назад
+	// )
+	// AS
+
+	fmt.Println(tm, str[1], str[5], str[4])
+
+	if _, err = tx.QueryOne(pg.Scan(&oID), query, tm, str[1], str[5], str[4]); err != nil {
+		fmt.Println("QueryOne", err)
+		tx.Rollback()
+		panic(err.Error())
+	}
+
+	tx.Commit()
+
+	if oID > 0 {
+		if tx, err = DB.Begin(); err != nil {
 			panic(err.Error())
 		}
 
-		query = "select o_ID from nami.fn_trackdata_ins(?,?,?,?)"
+		query = "select from nami.fn_trackdata_computed(?)"
 
-		if _, err = db.QueryOne(pg.Scan(&oID), query, time.Now(), str[1], str[5], str[4]); err != nil {
+		// CREATE OR REPLACE FUNCTION nami.fn_trackdata_computed (
+		//   i_TID     bigint  -- ид точки трека
+		// )
+
+		if _, err = tx.Exec(query, oID); err != nil {
+			fmt.Println("Exec", err)
 			tx.Rollback()
-			fmt.Println(err.Error())
-			panic(common.ProcessingError(err.Error()))
+			panic(err.Error())
 		}
 
 		tx.Commit()
+	}
 
-		fmt.Println("oID", oID)
-		log.Printf("Reading oID: %v", oID)
+	fmt.Println("Reading oID: ", oID)
+
+	//}
+
+}
+
+func trackReserveHandler(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			common.ProcessingError("Error trackHandler: " + rec.(error).Error())
+		}
+	}()
+
+	// var (
+	// 	bodyBytes      []byte
+	// 	err            error
+	// 	bodySTR, query string
+	// 	str            []string
+	// 	oID, i         int64
+	// 	tm             time.Time
+
+	// 	db *pg.DB
+	// 	tx *pg.Tx
+	// )
+
+	if r.Method == "GET" {
+
+		fmt.Println("MNN", r.FormValue("date_time"), r.FormValue("lat"), r.FormValue("lng"))
+
+		// if db, err = common.GetPGDB(0); err != nil {
+		// 	fmt.Println("GetPGDB", err)
+		// 	panic(err.Error())
+		// }
+
+		// defer db.Close()
+
+		// if tx, err = db.Begin(); err != nil {
+		// 	fmt.Println("Begin", err)
+		// 	panic(err.Error())
+		// }
+
+		// defer tx.Commit()
+
+		// query = "select o_ID from nami.fn_trackdata_ins(?,?,?,?)"
+
+		// // CREATE OR REPLACE FUNCTION nami.fn_trackdata_ins (
+		// //   i_Time    timestamp,       -- время снятия показаний с прибора
+		// //   i_MAC     varchar(30),     -- мак прибора
+		// //   i_X       DOUBLE PRECISION,-- долгота
+		// //   i_Y       DOUBLE PRECISION,-- широта
+		// //   out o_ID  bigint           -- ид точки трека; (-1) если устройства нет в списке, (-2) время бьет назад
+		// // )
+		// // AS
+
+		// fmt.Println(tm, str[1], str[5], str[4])
+
+		// if _, err = db.QueryOne(pg.Scan(&oID), query, tm, str[1], str[5], str[4]); err != nil {
+		// 	fmt.Println("QueryOne", err)
+		// 	tx.Rollback()
+		// 	panic(err.Error())
+		// }
+
+		// log.Printf("Reading oID: %v", oID)
 
 	}
 
