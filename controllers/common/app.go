@@ -33,13 +33,16 @@ type Configuration struct {
 //const G_FOLDER_PATH = "./documents/"
 
 var (
-	G_CONFIG Configuration
+	G_CONFIG                   Configuration
+	G_DB                       *pg.DB
+	G_INS, G_COMPUTED, G_SPEED *pg.Stmt
 )
 
-func GetPGDB(count int) (pgdb *pg.DB, err error) {
+func ConnectDB(count int) (err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			err = GetRecoverError(rec)
+			ProcessingError(err.Error())
 		}
 	}()
 
@@ -53,18 +56,86 @@ func GetPGDB(count int) (pgdb *pg.DB, err error) {
 	opt.User = G_CONFIG.PG_USER
 	opt.Password = G_CONFIG.PG_PASSWORD
 
+	G_DB = nil
+
 	if count > 10 {
 		panic("Потеряно соединение с БД")
-	} else {
-		err = nil
 	}
 
-	pgdb = pg.Connect(&opt)
+	G_DB = pg.Connect(&opt)
 
-	if _, err = pgdb.QueryOne(pg.Scan(&n), "SELECT 110+1"); err != nil {
-		fmt.Println("err", err)
+	if _, err = G_DB.QueryOne(pg.Scan(&n), "SELECT 110+1"); err != nil {
+		fmt.Println(err)
 		count = count + 1
-		pgdb, err = GetPGDB(count)
+		err = ConnectDB(count)
+
+		return
+	}
+
+	if err = PrepareStmt(); err != nil {
+		fmt.Println(err)
+		count = count + 1
+		err = ConnectDB(count)
+
+		return
+	}
+
+	return
+}
+
+func PrepareStmt() (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = GetRecoverError(rec)
+		}
+	}()
+
+	if G_INS, err = G_DB.Prepare("select o_ID from nami.fn_trackdata_ins($1,$2,$3,$4)"); err != nil {
+		panic(err.Error())
+	}
+
+	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_ins (
+	//   i_Time    timestamp,       -- время снятия показаний с прибора
+	//   i_MAC     varchar(30),     -- мак прибора
+	//   i_X       DOUBLE PRECISION,-- долгота
+	//   i_Y       DOUBLE PRECISION,-- широта
+	//   out o_ID  bigint           -- ид точки трека; (-1) если устройства нет в списке, (-2) время бьет назад
+	// )
+	// AS
+
+	if G_COMPUTED, err = G_DB.Prepare("select from nami.fn_trackdata_computed($1)"); err != nil {
+		panic(err.Error())
+	}
+
+	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_computed (
+	//   i_TID     bigint  -- ид точки трека
+	// )
+
+	if G_SPEED, err = G_DB.Prepare("select from nami.fn_trackdata_speed($1)"); err != nil {
+		panic(err.Error())
+	}
+
+	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_speed (
+	//  i_TID     bigint  -- ид точки трека
+	// )
+	// RETURNS void
+	// AS
+
+	return
+}
+
+func CheckDB() (res bool) {
+	var (
+		err error
+		n   int
+	)
+
+	res = false
+
+	if G_DB != nil {
+		if _, err = G_DB.QueryOne(pg.Scan(&n), "SELECT 110+1"); err == nil {
+			res = true
+		}
 	}
 
 	return
@@ -95,11 +166,11 @@ func SendDeveloper(message_type, text string) {
 			m.SetHeader("To", arr_to...)
 
 			if message_type == "info" {
-				m.SetHeader("Subject", "csort_3d_ds: Информация")
+				m.SetHeader("Subject", "31.192.104.83:9600: Информация")
 			} else if message_type == "error" {
-				m.SetHeader("Subject", "csort_3d_ds: Системная ошибка")
+				m.SetHeader("Subject", "31.192.104.83:9600: Системная ошибка")
 			} else {
-				m.SetHeader("Subject", "csort_3d_ds: Нетипизированная ошибка")
+				m.SetHeader("Subject", "31.192.104.83:9600: Нетипизированная ошибка")
 			}
 
 			m.SetBody("text/html", text)
