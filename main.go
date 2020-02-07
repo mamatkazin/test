@@ -6,9 +6,11 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 
-	"strings"
+	//	"strconv"
+
+	"encoding/json"
+	//"strings"
 	"time"
 
 	"github.com/go-pg/pg"
@@ -22,6 +24,14 @@ type S_Status struct {
 	Server bool        `json:"server"`
 	DB     bool        `json:"db"`
 	TI     interface{} `json:"time_idle"`
+}
+
+type S_Body struct {
+	IMEI int64   `json:"imei"`
+	MAC  string  `json:"mac"`
+	TS   int64   `json:"timestamp"`
+	Lat  float64 `json:"lat"`
+	Lng  float64 `json:"lng"`
 }
 
 func init() {
@@ -43,9 +53,23 @@ func main() {
 		f_log *os.File
 	)
 
+	//arr := strings.Split(S, "  ")
+
 	if err = common.ConnectDB(0); err != nil {
 		panic(common.ProcessingError(err.Error()))
 	}
+
+	// for _, item := range arr {
+	// 	if _, err = common.G_SPEED.Exec(item); err != nil {
+	// 		if !common.CheckDB() {
+	// 			if err = common.ConnectDB(0); err != nil {
+	// 				panic(common.ProcessingError(err.Error()))
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+	// fmt.Println("ok")
 
 	log.Printf("success: port=%s\n", common.G_CONFIG.APP_PORT)
 
@@ -53,8 +77,7 @@ func main() {
 
 	sp := http.StripPrefix("/", http.FileServer(http.Dir("./")))
 
-	mx.HandleFunc("/api/track", trackHandler)
-	mx.HandleFunc("/api/servers/ping", serversPingHandler)
+	mx.HandleFunc("/api/tracks", trackHandler)
 
 	mx.PathPrefix("/").Handler(sp)
 
@@ -82,32 +105,41 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 		bodyBytes []byte
 		err       error
 		bodySTR   string
-		str       []string
-		oID, i    int64
+		body      S_Body
+		oID       int64
 		tm        time.Time
 	)
 
-	if r.Method == "POST" {
+	//if r.Method == "POST" {
 
-		if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
-			panic("Error reading body: " + err.Error())
+	if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
+		panic("Error reading body: " + err.Error())
+	}
+
+	bodySTR = string(bodyBytes)
+
+	if err = json.Unmarshal([]byte(bodySTR), &body); err != nil {
+		panic(common.ProcessingError(err.Error()))
+	}
+
+	tm = time.Unix(int64(body.TS/1000), 0)
+
+	//body = S_Body{4345456544895, "E4:54:E8:1E:62:96", 1578931049289, 37.622504, 55.753215}
+
+	fmt.Println("@@@@@@@@@", body.TS, tm, body.Lng, body.Lat)
+
+	if _, err = common.G_INS.QueryOne(pg.Scan(&oID), tm, body.MAC, body.Lng, body.Lat); err != nil {
+		if !common.CheckDB() {
+			if err = common.ConnectDB(0); err != nil {
+				panic(common.ProcessingError(err.Error()))
+			}
 		}
 
-		bodySTR = string(bodyBytes)
+		panic(common.ProcessingError(err.Error()))
+	}
 
-		str = strings.Split(bodySTR, ";")
-
-		if i, err = strconv.ParseInt(str[0], 10, 64); err != nil {
-			panic(err.Error())
-		}
-
-		tm = time.Unix(i, 0)
-
-		fmt.Println(tm, str[1], str[5], str[4])
-
-		if _, err = common.G_INS.QueryOne(pg.Scan(&oID), tm, str[1], str[5], str[4]); err != nil {
-			fmt.Println("QueryOne", err)
-
+	if oID > 0 {
+		if _, err = common.G_COMPUTED.Exec(oID); err != nil {
 			if !common.CheckDB() {
 				if err = common.ConnectDB(0); err != nil {
 					panic(common.ProcessingError(err.Error()))
@@ -115,10 +147,8 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if oID > 0 {
-			if _, err = common.G_COMPUTED.Exec(oID); err != nil {
-				fmt.Println("Exec", err)
-
+		go func() {
+			if _, err = common.G_SPEED.Exec(oID); err != nil {
 				if !common.CheckDB() {
 					if err = common.ConnectDB(0); err != nil {
 						panic(common.ProcessingError(err.Error()))
@@ -126,74 +156,26 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			go func() {
-				if _, err = common.G_SPEED.Exec(oID); err != nil {
-					fmt.Println("G_SPEED", err)
+		}()
 
-					if !common.CheckDB() {
-						if err = common.ConnectDB(0); err != nil {
-							common.ProcessingError(err.Error())
-						}
-					}
-				}
+		// if insID > 0 {
+		// 	go func() {
+		// 		if _, err = common.G_SPEED.Exec(insID, raceID); err != nil {
+		// 			fmt.Println("G_SPEED", err)
 
-			}()
-		}
+		// 			if !common.CheckDB() {
+		// 				if err = common.ConnectDB(0); err != nil {
+		// 					common.ProcessingError(err.Error())
+		// 				}
+		// 			}
+		// 		}
 
-		fmt.Println("Reading oID: ", oID)
+		// 	}()
+		// }
 	}
 
-}
+	fmt.Println("Reading oID: ", oID)
 
-func serversPingHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	//w.WriteHeader()
 
-	defer func() {
-		if rec := recover(); rec != nil {
-			w.Write(h_Recover(rec))
-		}
-	}()
-
-	var (
-		err        error
-		cookieData common.CookieData
-
-		access = true
-		data   = common.S_Data{Valid: true, Errors: make([]string, 0)}
-	)
-
-	if r.Method != "OPTIONS" {
-		if r.Method == "GET" {
-			if data.Items, err = Ping(); err != nil {
-				panic(err)
-			}
-
-		} else {
-			access = false
-		}
-	}
-
-	if err = h_WriteData(access, data, cookieData.UserID, w); err != nil {
-		panic(err)
-	}
-}
-
-func Ping() (data S_Status, err error) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			err = common.GetRecoverError(rec)
-		}
-	}()
-
-	var n int
-
-	data.Server = true
-	data.DB = true
-
-	if _, err = common.G_DB.QueryOne(pg.Scan(&n), "SELECT 110+1"); err != nil {
-		data.DB = false
-		err = nil
-	}
-
-	return
 }

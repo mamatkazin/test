@@ -91,7 +91,7 @@ func PrepareStmt() (err error) {
 	}()
 
 	if G_INS, err = G_DB.Prepare("select o_ID from nami.fn_trackdata_ins($1,$2,$3,$4)"); err != nil {
-		panic(err.Error())
+		panic(ProcessingError(err.Error()))
 	}
 
 	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_ins (
@@ -104,16 +104,25 @@ func PrepareStmt() (err error) {
 	// AS
 
 	if G_COMPUTED, err = G_DB.Prepare("select from nami.fn_trackdata_computed($1)"); err != nil {
-		panic(err.Error())
+		panic(ProcessingError(err.Error()))
 	}
 
 	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_computed (
 	//   i_TID     bigint  -- ид точки трека
 	// )
 
-	if G_SPEED, err = G_DB.Prepare("select from nami.fn_trackdata_speed($1)"); err != nil {
+	if G_SPEED, err = G_DB.Prepare("select from nami.fn_trackdata_len_speed($1)"); err != nil {
 		panic(err.Error())
 	}
+
+	// REATE OR REPLACE FUNCTION nami.fn_trackdata_len_speed (
+	//    i_TID     bigint  -- ид точки трека
+	// )
+	// RETURNS void
+
+	// if G_SPEED, err = G_DB.Prepare("select from nami.fn_trackdata_speed($1,$2)"); err != nil {
+	// 	panic(err.Error())
+	// }
 
 	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_speed (
 	//  i_TID     bigint  -- ид точки трека
