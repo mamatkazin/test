@@ -102,12 +102,12 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	var (
-		bodyBytes []byte
-		err       error
-		bodySTR   string
-		body      S_Body
-		oID       int64
-		tm        time.Time
+		bodyBytes        []byte
+		err              error
+		bodySTR          string
+		body             S_Body
+		oID, oTID, oTID2 int64
+		tm               time.Time
 	)
 
 	//if r.Method == "POST" {
@@ -139,7 +139,7 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if oID > 0 {
-		if _, err = common.G_COMPUTED.Exec(oID); err != nil {
+		if _, err = common.G_COMPUTED.QueryOne(pg.Scan(&oTID), oID); err != nil {
 			if !common.CheckDB() {
 				if err = common.ConnectDB(0); err != nil {
 					panic(common.ProcessingError(err.Error()))
@@ -147,15 +147,23 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		fmt.Println("oTID", oTID)
+
 		go func() {
-			if _, err = common.G_SPEED.Exec(oID); err != nil {
-				if !common.CheckDB() {
-					if err = common.ConnectDB(0); err != nil {
-						panic(common.ProcessingError(err.Error()))
+			if oTID > 0 {
+				if _, err = common.G_SPEED.QueryOne(pg.Scan(&oTID2), oTID); err != nil {
+
+					fmt.Println("G_SPEED", err)
+
+					if !common.CheckDB() {
+						if err = common.ConnectDB(0); err != nil {
+							panic(common.ProcessingError(err.Error()))
+						}
 					}
 				}
-			}
 
+				fmt.Println("oTID2", oTID, oTID2)
+			}
 		}()
 
 		// if insID > 0 {

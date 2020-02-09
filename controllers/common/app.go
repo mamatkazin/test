@@ -103,15 +103,15 @@ func PrepareStmt() (err error) {
 	// )
 	// AS
 
-	if G_COMPUTED, err = G_DB.Prepare("select from nami.fn_trackdata_computed($1)"); err != nil {
+	if G_COMPUTED, err = G_DB.Prepare("select o_TID from nami.fn_trackdata_computed($1)"); err != nil {
 		panic(ProcessingError(err.Error()))
 	}
 
 	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_computed (
-	//   i_TID     bigint  -- ид точки трека
-	// )
+	//     i_TID     bigint,  -- ид точки трека
+	// OUT  o_TID     bigint   -- ид посаженной точки
 
-	if G_SPEED, err = G_DB.Prepare("select from nami.fn_trackdata_len_speed($1)"); err != nil {
+	if G_SPEED, err = G_DB.Prepare("select o_TID from nami.fn_trackdata_len_speed($1)"); err != nil {
 		panic(err.Error())
 	}
 
