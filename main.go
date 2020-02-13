@@ -27,11 +27,13 @@ type S_Status struct {
 }
 
 type S_Body struct {
-	IMEI int64   `json:"imei"`
-	MAC  string  `json:"mac"`
-	TS   int64   `json:"timestamp"`
-	Lat  float64 `json:"lat"`
-	Lng  float64 `json:"lng"`
+	IMEI   int64   `json:"imei"`
+	MAC    string  `json:"mac"`
+	TS     int64   `json:"timestamp"`
+	Lat    float64 `json:"lat"`
+	Lng    float64 `json:"lng"`
+	Speed  float64 `json:"speed"`
+	Length float64 `json:"length"`
 }
 
 func init() {
@@ -126,9 +128,9 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 
 	//body = S_Body{4345456544895, "E4:54:E8:1E:62:96", 1578931049289, 37.622504, 55.753215}
 
-	fmt.Println("@@@@@@@@@", body.TS, tm, body.Lng, body.Lat)
+	fmt.Println("@@@@@@@@@", body.TS, tm, body.Lng, body.Lat, body.Speed, body.Length)
 
-	if _, err = common.G_INS.QueryOne(pg.Scan(&oID), tm, body.MAC, body.Lng, body.Lat); err != nil {
+	if _, err = common.G_INS.QueryOne(pg.Scan(&oID), tm, body.MAC, body.Lng, body.Lat, body.Speed, body.Length); err != nil {
 		if !common.CheckDB() {
 			if err = common.ConnectDB(0); err != nil {
 				panic(common.ProcessingError(err.Error()))
@@ -147,16 +149,16 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		go func() {
-			if _, err = common.G_SPEED.Exec(oID); err != nil {
-				if !common.CheckDB() {
-					if err = common.ConnectDB(0); err != nil {
-						panic(common.ProcessingError(err.Error()))
-					}
-				}
-			}
+		// go func() {
+		// 	if _, err = common.G_SPEED.Exec(oID); err != nil {
+		// 		if !common.CheckDB() {
+		// 			if err = common.ConnectDB(0); err != nil {
+		// 				panic(common.ProcessingError(err.Error()))
+		// 			}
+		// 		}
+		// 	}
 
-		}()
+		// }()
 
 		// if insID > 0 {
 		// 	go func() {
