@@ -34,9 +34,9 @@ type Configuration struct {
 //const G_FOLDER_PATH = "./documents/"
 
 var (
-	G_CONFIG          Configuration
-	G_DB              *pg.DB
-	G_INS, G_COMPUTED *pg.Stmt
+	G_CONFIG                   Configuration
+	G_DB                       *pg.DB
+	G_INS, G_COMPUTED, G_SPEED *pg.Stmt
 )
 
 func ConnectDB(count int) (err error) {
@@ -117,9 +117,9 @@ func PrepareStmt() (err error) {
 	// )
 	// AS
 
-	// if G_SPEED, err = G_DB.Prepare("select o_TID from nami.fn_trackdata_len_speed($1)"); err != nil {
-	// 	panic(err.Error())
-	// }
+	if G_SPEED, err = G_DB.Prepare("select o_TID from nami.fn_trackdata_len_speed($1)"); err != nil {
+		panic(err.Error())
+	}
 
 	// REATE OR REPLACE FUNCTION nami.fn_trackdata_len_speed (
 	//    i_TID     bigint  -- ид точки трека

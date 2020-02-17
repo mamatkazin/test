@@ -37,8 +37,9 @@ type S_Body struct {
 }
 
 type S_Answer_Ins struct {
-	Valid    bool `json:"valid"`
-	Hindrace bool `json:"hindrace"`
+	Valid    bool  `json:"valid"`
+	Hindrace bool  `json:"hindrace"`
+	TS       int64 `json:"timestamp"`
 }
 
 type S_Sensor struct {
@@ -48,8 +49,9 @@ type S_Sensor struct {
 }
 
 type S_Answer_Sensor struct {
-	Valid bool `json:"valid"`
-	Value bool `json:"value"`
+	Valid bool  `json:"valid"`
+	Value bool  `json:"value"`
+	TS    int64 `json:"timestamp"`
 }
 
 func init() {
@@ -101,13 +103,13 @@ func main() {
 
 func trackHandler(w http.ResponseWriter, r *http.Request) {
 	var (
-		bodyBytes, b []byte
-		err          error
-		bodySTR      string
-		body         S_Body
-		oID, oTID    int64
-		tm           time.Time
-		res          S_Answer_Ins
+		bodyBytes, b     []byte
+		err              error
+		bodySTR          string
+		body             S_Body
+		oID, oTID, oTID2 int64
+		tm               time.Time
+		res              S_Answer_Ins
 	)
 
 	defer func() {
@@ -118,6 +120,7 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 
 			res.Valid = false
 			res.Hindrace = false
+			res.TS = time.Now().Unix()
 
 			if b, err = json.Marshal(res); err != nil {
 				b = []byte(common.ProcessingError(err.Error()))
@@ -155,55 +158,43 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 		panic(common.ProcessingError(err.Error()))
 	}
 
-	//if oID > 0 {
-	if _, err = common.G_COMPUTED.QueryOne(pg.Scan(&oTID, &res.Hindrace), oID); err != nil {
-		if !common.CheckDB() {
-			if err = common.ConnectDB(0); err != nil {
-				panic(common.ProcessingError(err.Error()))
+	if oID > 0 {
+		if _, err = common.G_COMPUTED.QueryOne(pg.Scan(&oTID, &res.Hindrace), oID); err != nil {
+			if !common.CheckDB() {
+				if err = common.ConnectDB(0); err != nil {
+					panic(common.ProcessingError(err.Error()))
+				}
 			}
 		}
+
+		res.Valid = true
+
+		fmt.Println("oTID", oTID)
+
+		//go func() {
+		if oTID > 0 {
+			if _, err = common.G_SPEED.QueryOne(pg.Scan(&oTID2), oTID); err != nil {
+
+				fmt.Println("G_SPEED", err)
+
+				if !common.CheckDB() {
+					if err = common.ConnectDB(0); err != nil {
+						panic(common.ProcessingError(err.Error()))
+					}
+				}
+			}
+
+			fmt.Println("oTID2", oTID, oTID2)
+		}
+		//}()
+
+	} else {
+		res.Valid = false
 	}
 
-	res.Valid = true
-
-	// fmt.Println("oTID", oTID)
-
-	// go func() {
-	// 	if oTID > 0 {
-	// 		if _, err = common.G_SPEED.QueryOne(pg.Scan(&oTID2), oTID); err != nil {
-
-	// 			fmt.Println("G_SPEED", err)
-
-	// 			if !common.CheckDB() {
-	// 				if err = common.ConnectDB(0); err != nil {
-	// 					panic(common.ProcessingError(err.Error()))
-	// 				}
-	// 			}
-	// 		}
-
-	// 		fmt.Println("oTID2", oTID, oTID2)
-	// 	}
-	// }()
-
-	// if insID > 0 {
-	// 	go func() {
-	// 		if _, err = common.G_SPEED.Exec(insID, raceID); err != nil {
-	// 			fmt.Println("G_SPEED", err)
-
-	// 			if !common.CheckDB() {
-	// 				if err = common.ConnectDB(0); err != nil {
-	// 					common.ProcessingError(err.Error())
-	// 				}
-	// 			}
-	// 		}
-
-	// 	}()
-	// }
-	//} else {
-	//	res.Valid = false
-	//}
-
 	fmt.Println("Reading oID: ", oID)
+
+	res.TS = time.Now().Unix()
 
 	if b, err = json.Marshal(res); err != nil {
 		panic(common.ProcessingError(err.Error()))
@@ -221,16 +212,18 @@ func sensorsHandler(w http.ResponseWriter, r *http.Request) {
 		body           S_Sensor
 		oID            int64
 		res            S_Answer_Sensor
+		n              int
 	)
 
 	defer func() {
 		if rec := recover(); rec != nil {
 			common.ProcessingError(fmt.Sprintf("Error trackHandler: %v", rec))
 
-			fmt.Println(fmt.Sprintf("Error trackHandler: %v", rec))
+			fmt.Println(fmt.Sprintf("Error sensorsHandler: %v", rec))
 
 			res.Valid = false
 			res.Value = false
+			res.TS = time.Now().Unix()
 
 			if b, err = json.Marshal(res); err != nil {
 				b = []byte(common.ProcessingError(err.Error()))
@@ -240,49 +233,65 @@ func sensorsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	//if r.Method == "POST" {
+	if r.Method == "POST" {
 
-	if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
-		panic("Error reading body: " + err.Error())
-	}
-
-	bodySTR = string(bodyBytes)
-
-	if err = json.Unmarshal([]byte(bodySTR), &body); err != nil {
-		panic(common.ProcessingError(err.Error()))
-	}
-
-	query = "select o_ID from nami.fn_hindrace_ins(?,?,?)"
-
-	// CREATE OR REPLACE FUNCTION nami.fn_hindrace_ins (
-	//    i_UT     bigint,     -- юникс время прибора,
-	//    i_Flag   boolean,    -- признак чистоты зоны,
-	//    i_Vid    varchar(30),-- ид устройства
-	// out o_ID     bigint
-	// )
-	// AS
-
-	fmt.Println("sensorsHandler", r.Method, body.TS, body.Value, common.G_CONFIG.MAC)
-
-	if _, err = common.G_DB.QueryOne(pg.Scan(&oID), query, body.TS, body.Value, common.G_CONFIG.MAC); err != nil {
-		if !common.CheckDB() {
-			if err = common.ConnectDB(0); err != nil {
-				panic(common.ProcessingError(err.Error()))
-			}
+		if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
+			panic("Error reading body: " + err.Error())
 		}
 
-		panic(common.ProcessingError(err.Error()))
+		bodySTR = string(bodyBytes)
+
+		fmt.Println("bodySTR", r.Method, bodySTR)
+
+		if err = json.Unmarshal([]byte(bodySTR), &body); err != nil {
+			fmt.Println("json.Unmarshal", err)
+			panic(common.ProcessingError(err.Error()))
+		}
+
+		query = "select o_ID from nami.fn_hindrace_ins(?,?,?)"
+
+		// CREATE OR REPLACE FUNCTION nami.fn_hindrace_ins (
+		//    i_UT     bigint,     -- юникс время прибора,
+		//    i_Flag   boolean,    -- признак чистоты зоны,
+		//    i_Vid    varchar(30),-- ид устройства
+		// out o_ID     bigint
+		// )
+		// AS
+
+		fmt.Println("sensorsHandler", r.Method, body.TS, body.Value, common.G_CONFIG.MAC)
+
+		if _, err = common.G_DB.QueryOne(pg.Scan(&oID), query, body.TS, body.Value, common.G_CONFIG.MAC); err != nil {
+			if !common.CheckDB() {
+				if err = common.ConnectDB(0); err != nil {
+					panic(common.ProcessingError(err.Error()))
+				}
+			}
+
+			panic(common.ProcessingError(err.Error()))
+		}
+
+		fmt.Println("sensorsHandler oID: ", oID)
+
+		res.Valid = true
+		res.Value = body.Value
+		res.TS = time.Now().Unix()
+
+		fmt.Println("res", res)
+
+		if b, err = json.Marshal(res); err != nil {
+			fmt.Println("json.Marshal", err)
+			panic(common.ProcessingError(err.Error()))
+		}
+
+		fmt.Println("bbbbbbbb", string(b))
+
+		if n, err = w.Write(b); err != nil {
+			fmt.Println("w.Write", err)
+			panic(common.ProcessingError(err.Error()))
+		}
+
+		fmt.Println("nnnnnnn", n)
+
 	}
-
-	fmt.Println("sensorsHandler oID: ", oID)
-
-	res.Valid = true
-	res.Value = body.Value
-
-	if b, err = json.Marshal(res); err != nil {
-		panic(common.ProcessingError(err.Error()))
-	}
-
-	w.Write(b)
 
 }
