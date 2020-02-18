@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"nami/nami_track/controllers/common"
+	"nami/nami_track/controllers/sensors"
 )
 
 type S_Status struct {
@@ -80,6 +81,7 @@ func main() {
 	sp := http.StripPrefix("/", http.FileServer(http.Dir("./")))
 
 	mx.HandleFunc("/api/tracks", trackHandler)
+	mx.HandleFunc("/api/sensors", sensorsHandler)
 
 	mx.PathPrefix("/").Handler(sp)
 
@@ -200,5 +202,43 @@ func trackHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Reading oID: ", oID)
 
 	//w.WriteHeader()
+
+}
+
+func sensorsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	defer func() {
+		if rec := recover(); rec != nil {
+			w.Write(h_Recover(rec))
+		}
+	}()
+
+	var (
+		err error
+
+		access = true
+		//data   = common.S_Data{Valid: true, Errors: make([]string, 0)}
+		data interface{}
+	)
+
+	if r.Method != "OPTIONS" {
+		if r.Method == "GET" {
+			if data, err = sensors.Show(r); err != nil {
+				panic(err)
+			}
+		} else if r.Method == "POST" {
+			if data, err = sensors.Create(r); err != nil {
+				panic(err)
+			}
+
+		} else {
+			access = false
+		}
+	}
+
+	if err = h_WriteData(access, data, 0, w); err != nil {
+		panic(err)
+	}
 
 }

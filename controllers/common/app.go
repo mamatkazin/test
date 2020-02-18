@@ -28,6 +28,7 @@ type Configuration struct {
 	PG_USER         string
 	PG_PASSWORD     string
 	PG_BASE         string
+	SENSOR          string
 }
 
 //const G_FOLDER_PATH = "./documents/"
