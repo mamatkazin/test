@@ -1,24 +1,18 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
-
-	//	"strconv"
-
-	"encoding/json"
-	//"strings"
 	"time"
 
 	"github.com/go-pg/pg"
-
 	"github.com/gorilla/mux"
 
-	"nami/nami_track/controllers/common"
-	"nami/nami_track/controllers/sensors"
+	"hospital_track/controllers/common"
 )
 
 type S_Status struct {
@@ -28,20 +22,44 @@ type S_Status struct {
 }
 
 type S_Body struct {
-	IMEI   int64   `json:"imei"`
-	MAC    string  `json:"mac"`
-	TS     int64   `json:"timestamp"`
-	Lat    float64 `json:"lat"`
-	Lng    float64 `json:"lng"`
-	Speed  float64 `json:"speed"`
-	Length float64 `json:"length"`
+	IMEI      int64   `json:"imei"`
+	MAC       string  `json:"mac"`
+	TS        int64   `json:"timestamp"`
+	Lat       float64 `json:"lat"`
+	Lng       float64 `json:"lng"`
+	Speed     float64 `json:"speed"`
+	Length    float64 `json:"length"`
+	Hindrace  int     `json:"hindrace"`
+	Direction int     `json:"direction"`
 }
+
+type S_Answer_Ins struct {
+	Valid bool `json:"valid"`
+	//	Hindrace bool  `json:"hindrace"`
+	TS    int64 `json:"timestamp"`
+	TL    bool  `json:"traffic_light"`
+	TLNII bool  `json:"traffic_light_nii"`
+}
+
+// type S_Sensor struct {
+// 	MAC   string `json:"mac"`
+// 	TS    int64  `json:"timestamp"`
+// 	Value bool   `json:"value"`
+// }
+
+// type S_Answer_Sensor struct {
+// 	Valid bool  `json:"valid"`
+// 	Value bool  `json:"value"`
+// 	TS    int64 `json:"timestamp"`
+// }
 
 func init() {
 	if err := initConfigFile(); err != nil {
 		return
 	}
 }
+
+// var G_HINDRACE bool
 
 func main() {
 	defer func() {
@@ -56,23 +74,11 @@ func main() {
 		f_log *os.File
 	)
 
-	//arr := strings.Split(S, "  ")
+	// G_HINDRACE = false
 
 	if err = common.ConnectDB(0); err != nil {
 		panic(common.ProcessingError(err.Error()))
 	}
-
-	// for _, item := range arr {
-	// 	if _, err = common.G_SPEED.Exec(item); err != nil {
-	// 		if !common.CheckDB() {
-	// 			if err = common.ConnectDB(0); err != nil {
-	// 				panic(common.ProcessingError(err.Error()))
-	// 			}
-	// 		}
-	// 	}
-	// }
-
-	// fmt.Println("ok")
 
 	log.Printf("success: port=%s\n", common.G_CONFIG.APP_PORT)
 
@@ -81,7 +87,6 @@ func main() {
 	sp := http.StripPrefix("/", http.FileServer(http.Dir("./")))
 
 	mx.HandleFunc("/api/tracks", trackHandler)
-	mx.HandleFunc("/api/sensors", sensorsHandler)
 
 	mx.PathPrefix("/").Handler(sp)
 
@@ -99,146 +104,114 @@ func main() {
 }
 
 func trackHandler(w http.ResponseWriter, r *http.Request) {
+	var (
+		bodyBytes, b []byte
+		err          error
+		bodySTR      string
+		body         S_Body
+		oID, oTID    int64
+		tm           time.Time
+		res          S_Answer_Ins
+	)
+
 	defer func() {
 		if rec := recover(); rec != nil {
-			common.ProcessingError("Error trackHandler: " + rec.(error).Error())
+			common.ProcessingError(fmt.Sprintf("Error trackHandler: %v", rec))
+
+			fmt.Println(fmt.Sprintf("Error trackHandler: %v", rec))
+
+			res.Valid = false
+			res.TS = time.Now().Unix()
+
+			if b, err = json.Marshal(res); err != nil {
+				b = []byte(common.ProcessingError(err.Error()))
+			}
+
+			w.Write(b)
 		}
 	}()
 
-	var (
-		bodyBytes []byte
-		err       error
-		bodySTR   string
-		body      S_Body
-		oID, oTID int64
-		tm        time.Time
-	)
+	if r.Method == "POST" {
 
-	//if r.Method == "POST" {
-
-	if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
-		panic("Error reading body: " + err.Error())
-	}
-
-	bodySTR = string(bodyBytes)
-
-	if err = json.Unmarshal([]byte(bodySTR), &body); err != nil {
-		panic(common.ProcessingError(err.Error()))
-	}
-
-	tm = time.Unix(int64(body.TS/1000), 0)
-
-	//body = S_Body{4345456544895, "E4:54:E8:1E:62:96", 1578931049289, 37.622504, 55.753215}
-
-	fmt.Println("@@@@@@@@@", body.TS, tm, body.Lng, body.Lat, body.Speed, body.Length)
-
-	if _, err = common.G_INS.QueryOne(pg.Scan(&oID), tm, body.MAC, body.Lng, body.Lat, body.Speed, body.Length); err != nil {
-		if !common.CheckDB() {
-			if err = common.ConnectDB(0); err != nil {
-				panic(common.ProcessingError(err.Error()))
-			}
+		if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
+			panic("Error reading body: " + err.Error())
 		}
 
-		panic(common.ProcessingError(err.Error()))
-	}
+		bodySTR = string(bodyBytes)
 
-	if oID > 0 {
-		if _, err = common.G_COMPUTED.QueryOne(pg.Scan(&oTID), oID); err != nil {
+		if err = json.Unmarshal([]byte(bodySTR), &body); err != nil {
+			panic(common.ProcessingError(err.Error()))
+		}
+
+		//tm = time.Unix(body.TS, 0)
+		tm = time.Unix(0, body.TS*int64(time.Millisecond))
+
+		//body = S_Body{4345456544895, "E4:54:E8:1E:62:96", 1578931049289, 37.622504, 55.753215}
+
+		fmt.Println(tm, r.Method, body.MAC, body.TS, body.Lng, body.Lat, body.Speed, body.Length*1000, body.Hindrace, body.Direction)
+
+		if _, err = common.G_INS.QueryOne(pg.Scan(&oID), tm, body.MAC, body.Lng, body.Lat, body.Speed, body.Length*1000, body.Hindrace, body.Direction); err != nil {
 			if !common.CheckDB() {
 				if err = common.ConnectDB(0); err != nil {
 					panic(common.ProcessingError(err.Error()))
 				}
 			}
+
+			panic(common.ProcessingError(err.Error()))
 		}
 
-		//<<<<<<< HEAD
-		// go func() {
-		// 	if _, err = common.G_SPEED.Exec(oID); err != nil {
-		// 		if !common.CheckDB() {
-		// 			if err = common.ConnectDB(0); err != nil {
-		// 				panic(common.ProcessingError(err.Error()))
-		// 			}
-		// 		}
-		// 	}
-
-		// }()
-		// =======
-		// 		fmt.Println("oTID", oTID)
-
-		// 		go func() {
-		// 			if oTID > 0 {
-		// 				if _, err = common.G_SPEED.QueryOne(pg.Scan(&oTID2), oTID); err != nil {
-
-		// 					fmt.Println("G_SPEED", err)
-
-		// 					if !common.CheckDB() {
-		// 						if err = common.ConnectDB(0); err != nil {
-		// 							panic(common.ProcessingError(err.Error()))
-		// 						}
-		// 					}
-		// 				}
-
-		// 				fmt.Println("oTID2", oTID, oTID2)
-		// 			}
-		// 		}()
-		// >>>>>>> acf5fe408e7015fabf95848eb422a37e59e27a84
-
-		// if insID > 0 {
-		// 	go func() {
-		// 		if _, err = common.G_SPEED.Exec(insID, raceID); err != nil {
-		// 			fmt.Println("G_SPEED", err)
-
-		// 			if !common.CheckDB() {
-		// 				if err = common.ConnectDB(0); err != nil {
-		// 					common.ProcessingError(err.Error())
-		// 				}
-		// 			}
-		// 		}
-
-		// 	}()
-		// }
-	}
-
-	fmt.Println("Reading oID: ", oID)
-
-	//w.WriteHeader()
-
-}
-
-func sensorsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	defer func() {
-		if rec := recover(); rec != nil {
-			w.Write(h_Recover(rec))
-		}
-	}()
-
-	var (
-		err error
-
-		access = true
-		//data   = common.S_Data{Valid: true, Errors: make([]string, 0)}
-		data interface{}
-	)
-
-	if r.Method != "OPTIONS" {
-		if r.Method == "GET" {
-			if data, err = sensors.Show(r); err != nil {
-				panic(err)
+		if oID > 0 {
+			if _, err = common.G_COMPUTED.QueryOne(pg.Scan(&oTID, &res.TL, &res.TLNII), oID); err != nil {
+				if !common.CheckDB() {
+					if err = common.ConnectDB(0); err != nil {
+						panic(common.ProcessingError(err.Error()))
+					}
+				}
 			}
-		} else if r.Method == "POST" {
-			if data, err = sensors.Create(r); err != nil {
-				panic(err)
-			}
+
+			res.Valid = true
+
+			fmt.Println("oTID", oTID)
+
+			//go func() {
+			// if oTID > 0 {
+			// 	if _, err = common.G_SPEED.QueryOne(pg.Scan(&oTID2), oTID); err != nil {
+
+			// 		fmt.Println("G_SPEED", err)
+
+			// 		if !common.CheckDB() {
+			// 			if err = common.ConnectDB(0); err != nil {
+			// 				panic(common.ProcessingError(err.Error()))
+			// 			}
+			// 		}
+			// 	}
+
+			// 	fmt.Println("oTID2", oTID, oTID2)
+			// }
+			//}()
 
 		} else {
-			access = false
+			res.Valid = false
 		}
-	}
 
-	if err = h_WriteData(access, data, 0, w); err != nil {
-		panic(err)
+		fmt.Println("Reading oID: ", oID)
+
+		res.TS = time.Now().Unix()
+
+		if b, err = json.Marshal(res); err != nil {
+			panic(common.ProcessingError(err.Error()))
+		}
+
+		w.Write(b)
+	} else {
+		res.Valid = false
+		res.TS = time.Now().Unix()
+
+		if b, err = json.Marshal(res); err != nil {
+			b = []byte(common.ProcessingError(err.Error()))
+		}
+
+		w.Write(b)
 	}
 
 }

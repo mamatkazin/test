@@ -1,9 +1,7 @@
 package common
 
 import (
-	//	"database/sql"
 	"fmt"
-	//	"html"
 	"log"
 	"path/filepath"
 	"runtime"
@@ -12,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-pg/pg"
-	_ "github.com/nakagami/firebirdsql"
 	"gopkg.in/gomail.v2"
 )
 
@@ -28,15 +25,12 @@ type Configuration struct {
 	PG_USER         string
 	PG_PASSWORD     string
 	PG_BASE         string
-	SENSOR          string
 }
 
-//const G_FOLDER_PATH = "./documents/"
-
 var (
-	G_CONFIG                   Configuration
-	G_DB                       *pg.DB
-	G_INS, G_COMPUTED, G_SPEED *pg.Stmt
+	G_CONFIG          Configuration
+	G_DB              *pg.DB
+	G_INS, G_COMPUTED *pg.Stmt
 )
 
 func ConnectDB(count int) (err error) {
@@ -91,64 +85,51 @@ func PrepareStmt() (err error) {
 		}
 	}()
 
-	if G_INS, err = G_DB.Prepare("select o_ID from nami.fn_trackdata_ins($1,$2,$3,$4)"); err != nil {
+	if G_INS, err = G_DB.Prepare("select o_ID from nami.fn_trackdata_ins($1,$2,$3,$4,$5,$6,$7,$8)"); err != nil {
 		panic(ProcessingError(err.Error()))
 	}
 
 	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_ins (
-	//   i_Time    timestamp,       -- время снятия показаний с прибора
-	//   i_MAC     varchar(30),     -- мак прибора
-	//   i_X       DOUBLE PRECISION,-- долгота
-	//   i_Y       DOUBLE PRECISION,-- широта
-	//   out o_ID  bigint           -- ид точки трека; (-1) если устройства нет в списке, (-2) время бьет назад
-	// )
-	// AS
+	// 	i_Time    timestamp,       -- время снятия показаний с прибора
+	// 	i_MAC     varchar(30),     -- ид прибора
+	// 	i_X       DOUBLE PRECISION,-- долгота
+	// 	i_Y       DOUBLE PRECISION,-- широта
+	// 	i_Speed   DOUBLE PRECISION,-- скорость
+	// 	i_Len     DOUBLE PRECISION,-- длина пути
+	// 	i_Dist    INTEGER         ,-- расстояние до помехи
+	// 	i_Direct  INTEGER         ,-- направление помехи
+	// 	out o_ID  bigint          ,-- ид точки трека; (-1) если устройства нет в списке, (-2) время бьет назад
+	// 	out o_t   text
+	//   )
+	//   AS
 
 	if G_COMPUTED, err = G_DB.Prepare("select o_TID from nami.fn_trackdata_computed($1)"); err != nil {
 		panic(ProcessingError(err.Error()))
 	}
 
 	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_computed (
-	//     i_TID     bigint,  -- ид точки трека
-	// OUT  o_TID     bigint   -- ид посаженной точки
-
-	if G_SPEED, err = G_DB.Prepare("select o_TID from nami.fn_trackdata_len_speed($1)"); err != nil {
-		panic(err.Error())
-	}
-
-	// REATE OR REPLACE FUNCTION nami.fn_trackdata_len_speed (
-	//    i_TID     bigint  -- ид точки трека
+	//      i_TID     bigint,  -- ид точки трека
+	// OUT  o_TID     bigint,  -- ид посаженной точки
+	// OUT  o_HR      boolean  -- последнее значение датчика помехи
 	// )
-	// RETURNS void
-
-	// if G_SPEED, err = G_DB.Prepare("select from nami.fn_trackdata_speed($1,$2)"); err != nil {
-	// 	panic(err.Error())
-	// }
-
-	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_speed (
-	//  i_TID     bigint  -- ид точки трека
-	// )
-	// RETURNS void
 	// AS
 
 	return
 }
 
-func CheckDB() (res bool) {
+func CheckDB() bool {
 	var (
 		err error
 		n   int
 	)
 
-	res = false
-
 	if G_DB != nil {
 		if _, err = G_DB.QueryOne(pg.Scan(&n), "SELECT 110+1"); err == nil {
-			res = true
+			return true
 		}
 	}
 
-	return
+	return false
 }
 
 func SendDeveloper(message_type, text string) {
@@ -176,11 +157,11 @@ func SendDeveloper(message_type, text string) {
 			m.SetHeader("To", arr_to...)
 
 			if message_type == "info" {
-				m.SetHeader("Subject", "31.192.104.83:9600: Информация")
+				m.SetHeader("Subject", "hospital_track: Информация")
 			} else if message_type == "error" {
-				m.SetHeader("Subject", "31.192.104.83:9600: Системная ошибка")
+				m.SetHeader("Subject", "hospital_track: Системная ошибка")
 			} else {
-				m.SetHeader("Subject", "31.192.104.83:9600: Нетипизированная ошибка")
+				m.SetHeader("Subject", "hospital_track: Нетипизированная ошибка")
 			}
 
 			m.SetBody("text/html", text)
@@ -255,22 +236,6 @@ func ProcessingError(err_text string) (text string) {
 	return
 }
 
-// func ProcessingInfo(info_text string) (text string) {
-// 	var (
-// 		filename string
-// 		line     int
-// 	)
-
-// 	_, filename, line, _ = runtime.Caller(1)
-
-// 	text = fmt.Sprintf("info: %s:%d: text = %s", filepath.Base(filename), line, info_text)
-
-// 	log.Print(text)
-// 	SendDeveloper("info", text)
-
-// 	return
-// }
-
 func GetRecoverErrorText(rec interface{}) (text string) {
 	var (
 		ok  bool
@@ -298,66 +263,3 @@ func GetRecoverError(rec interface{}) (err error) {
 
 	return
 }
-
-// //Заменяет все, что не русские или англиские буквы, и не пробел (0020) или точка (002e)
-// //на знак подчеркивания (005f)
-// // err always = nil
-// func W1251Normalizer(inStr string) (outStr string, err error) {
-// 	var validRunes = []rune{'А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З', 'И', 'Й', 'К', 'Л', 'М', 'О',
-// 		'П', 'Р', 'С', 'Т', 'У', 'Ф', 'Х', 'Ц', 'Ч', 'Ш', 'Щ', 'Ъ', 'Ы', 'Ь', 'Э', 'Ю', 'Я',
-// 		'а', 'б', 'в', 'г', 'д', 'е', 'ж', 'з', 'и', 'й', 'к', 'л', 'м', 'о',
-// 		'п', 'р', 'с', 'т', 'у', 'ф', 'х', 'ц', 'ч', 'ш', 'щ', 'ъ', 'ы', 'ь', 'э', 'ю', 'я',
-// 		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-// 		'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-// 		'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '(', ')',
-// 		' ', '.'}
-// 	var runeIsVal = func(r rune) (isVal bool) {
-// 		for _, vr := range validRunes {
-// 			if r == vr {
-// 				isVal = true
-// 				return
-// 			}
-// 		}
-// 		isVal = false
-// 		return
-// 	}
-// 	var inRunes = []rune(inStr)
-// 	var outRunes []rune
-// 	for _, rn := range inRunes {
-// 		if runeIsVal(rn) {
-// 			outRunes = append(outRunes, rn)
-// 		} else {
-// 			outRunes = append(outRunes, '_')
-// 		}
-// 	}
-// 	return string(outRunes), nil
-// }
-
-// func CheckLenString(str string, length int) (res string) {
-// 	var index int
-
-// 	if str != "null" {
-// 		str = html.EscapeString(str)
-
-// 		if len([]rune(str)) > length {
-// 			res = string([]rune(str)[0 : length-1])
-// 		} else {
-// 			res = str
-// 		}
-
-// 		index = strings.LastIndex(res, "&")
-
-// 		if index > -1 {
-// 			var count = len(res) - index
-
-// 			if count < 5 {
-// 				res = string([]rune(res)[0 : len(res)-count])
-// 			}
-// 		}
-
-// 	} else {
-// 		res = ""
-// 	}
-
-// 	return
-// }
