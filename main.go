@@ -2,55 +2,39 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
-	"time"
 
-	"github.com/go-pg/pg"
-	"github.com/gorilla/mux"
-
-	"hospital_track/controllers/common"
+	"hospital_track/env"
+	"hospital_track/handler"
+	"hospital_track/repository"
+	"hospital_track/service"
 )
 
-type S_Status struct {
-	Server bool        `json:"server"`
-	DB     bool        `json:"db"`
-	TI     interface{} `json:"time_idle"`
-}
-
-type S_Body struct {
-	IMEI      int64   `json:"imei"`
-	MAC       string  `json:"mac"`
-	TS        int64   `json:"timestamp"`
-	Lat       float64 `json:"lat"`
-	Lng       float64 `json:"lng"`
-	Speed     float64 `json:"speed"`
-	Length    float64 `json:"length"`
-	Hindrace  int     `json:"hindrace"`
-	Direction int     `json:"direction"`
-}
-
-type S_Answer_Ins struct {
-	Valid bool `json:"valid"`
-	//	Hindrace bool  `json:"hindrace"`
-	TS    int64 `json:"timestamp"`
-	TL    bool  `json:"traffic_light"`
-	TLNII bool  `json:"traffic_light_nii"`
-}
-
-// type S_Sensor struct {
-// 	MAC   string `json:"mac"`
-// 	TS    int64  `json:"timestamp"`
-// 	Value bool   `json:"value"`
+// type S_Status struct {
+// 	Server bool        `json:"server"`
+// 	DB     bool        `json:"db"`
+// 	TI     interface{} `json:"time_idle"`
 // }
 
-// type S_Answer_Sensor struct {
-// 	Valid bool  `json:"valid"`
-// 	Value bool  `json:"value"`
+// type S_Body struct {
+// 	IMEI      int64   `json:"imei"`
+// 	MAC       string  `json:"mac"`
+// 	TS        int64   `json:"timestamp"`
+// 	Lat       float64 `json:"lat"`
+// 	Lng       float64 `json:"lng"`
+// 	Speed     float64 `json:"speed"`
+// 	Length    float64 `json:"length"`
+// 	Hindrace  float64 `json:"distObject"`
+// 	Direction float64 `json:"ori"`
+// }
+
+// type S_Answer_Ins struct {
+// 	Valid bool `json:"valid"`
+// 	//	Hindrace bool  `json:"hindrace"`
 // 	TS    int64 `json:"timestamp"`
+// 	TL    bool  `json:"traffic_light"`
+// 	TLNII bool  `json:"traffic_light_nii"`
 // }
 
 func init() {
@@ -59,159 +43,163 @@ func init() {
 	}
 }
 
-// var G_HINDRACE bool
-
 func main() {
 	defer func() {
 		if rec := recover(); rec != nil {
-			common.ProcessingError("Error main: " + common.GetRecoverErrorText(rec))
+			log.Printf("panic: Ошибка: %v", rec)
 		}
 	}()
 
 	var (
-		mx    *mux.Router
+		//mx    *mux.Router
 		err   error
-		f_log *os.File
+		repos *repository.SRepository
 	)
 
-	// G_HINDRACE = false
-
-	if err = common.ConnectDB(0); err != nil {
-		panic(common.ProcessingError(err.Error()))
+	if repos, err = repository.Repository(env.GCONFIG.DBConnect); err != nil {
+		log.Printf("panic: Не возомжно подключится к серверу баз данных. Ошибка: %s", err.Error())
+		return
 	}
 
-	log.Printf("success: port=%s\n", common.G_CONFIG.APP_PORT)
+	services := service.Service(repos)
+	handlers := handler.Handler(services)
 
-	mx = mux.NewRouter()
+	http := handlers.InitRoutes()
 
-	sp := http.StripPrefix("/", http.FileServer(http.Dir("./")))
+	// if err = common.ConnectDB(0); err != nil {
+	// 	panic(err.Error())
+	// }
 
-	mx.HandleFunc("/api/tracks", trackHandler)
+	log.Printf("success: port=%s\n", env.GCONFIG.AppPort)
 
-	mx.PathPrefix("/").Handler(sp)
+	// mx = mux.NewRouter()
 
-	if f_log, err = initLogFile(); err != nil {
-		panic(err.Error())
-	}
+	// sp := http.StripPrefix("/", http.FileServer(http.Dir("./")))
 
-	defer f_log.Close()
+	// mx.HandleFunc("/api/tracks", trackHandler)
 
-	err = http.ListenAndServe(common.G_CONFIG.APP_PORT, mx)
+	// mx.PathPrefix("/").Handler(sp)
 
-	if err != nil {
-		panic(err.Error())
+	if err = http.Run(env.GCONFIG.AppPort); err != nil {
+		log.Printf("panic: Не возомжно стартануть сервер. Ошибка: %s", err.Error())
+		return
 	}
 }
 
-func trackHandler(w http.ResponseWriter, r *http.Request) {
-	var (
-		bodyBytes, b []byte
-		err          error
-		bodySTR      string
-		body         S_Body
-		oID, oTID    int64
-		tm           time.Time
-		res          S_Answer_Ins
-	)
+// func trackHandler(w http.ResponseWriter, r *http.Request) {
+// 	var (
+// 		bodyBytes []byte
+// 		err       error
+// 		bodySTR   string
+// 		body      S_Body
+// 		oID, oTID int64
+// 		tm        time.Time
+// 		//res          S_Answer_Ins
+// 	)
 
-	defer func() {
-		if rec := recover(); rec != nil {
-			common.ProcessingError(fmt.Sprintf("Error trackHandler: %v", rec))
+// 	defer func() {
+// 		if rec := recover(); rec != nil {
 
-			fmt.Println(fmt.Sprintf("Error trackHandler: %v", rec))
+// 			// fmt.Println(fmt.Sprintf("Error trackHandler: %v", rec))
 
-			res.Valid = false
-			res.TS = time.Now().Unix()
+// 			// res.Valid = false
+// 			// res.TS = time.Now().Unix()
 
-			if b, err = json.Marshal(res); err != nil {
-				b = []byte(common.ProcessingError(err.Error()))
-			}
+// 			// if b, err = json.Marshal(res); err != nil {
+// 			// 	b = []byte(common.ProcessingError(err.Error()))
+// 			// }
 
-			w.Write(b)
-		}
-	}()
+// 			// w.Write(b)
+// 		}
+// 	}()
 
-	if r.Method == "POST" {
+// 	if r.Method == "POST" {
 
-		if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
-			panic("Error reading body: " + err.Error())
-		}
+// 		if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
+// 			panic("Error reading body: " + err.Error())
+// 		}
 
-		bodySTR = string(bodyBytes)
+// 		bodySTR = string(bodyBytes)
 
-		if err = json.Unmarshal([]byte(bodySTR), &body); err != nil {
-			panic(common.ProcessingError(err.Error()))
-		}
+// 		if err = json.Unmarshal([]byte(bodySTR), &body); err != nil {
+// 			panic(err.Error())
+// 		}
 
-		//tm = time.Unix(body.TS, 0)
-		tm = time.Unix(0, body.TS*int64(time.Millisecond))
+// 		tm = time.Unix(0, body.TS*int64(time.Millisecond))
 
-		//body = S_Body{4345456544895, "E4:54:E8:1E:62:96", 1578931049289, 37.622504, 55.753215}
+// 		fmt.Println(tm, r.Method, body.MAC, body.TS, body.Lng, body.Lat, body.Speed, body.Length*1000, math.Round(body.Hindrace), math.Round(body.Direction))
 
-		fmt.Println(tm, r.Method, body.MAC, body.TS, body.Lng, body.Lat, body.Speed, body.Length*1000, body.Hindrace, body.Direction)
+// 		if _, err = common.G_INS.QueryOne(pg.Scan(&oID), tm, body.MAC, body.Lng, body.Lat, body.Speed, body.Length*1000, math.Round(body.Hindrace), math.Round(body.Direction)); err != nil {
+// 			if !common.CheckDB() {
+// 				if err = common.ConnectDB(0); err != nil {
+// 					panic(err.Error())
+// 				}
+// 			}
 
-		if _, err = common.G_INS.QueryOne(pg.Scan(&oID), tm, body.MAC, body.Lng, body.Lat, body.Speed, body.Length*1000, body.Hindrace, body.Direction); err != nil {
-			if !common.CheckDB() {
-				if err = common.ConnectDB(0); err != nil {
-					panic(common.ProcessingError(err.Error()))
-				}
-			}
+// 			panic(err.Error())
+// 		}
 
-			panic(common.ProcessingError(err.Error()))
-		}
+// 		if oID > 0 {
+// 			if _, err = common.G_COMPUTED.QueryOne(pg.Scan(&oTID), oID); err != nil {
+// 				if !common.CheckDB() {
+// 					if err = common.ConnectDB(0); err != nil {
+// 						panic(err.Error())
+// 					}
+// 				}
 
-		if oID > 0 {
-			if _, err = common.G_COMPUTED.QueryOne(pg.Scan(&oTID, &res.TL, &res.TLNII), oID); err != nil {
-				if !common.CheckDB() {
-					if err = common.ConnectDB(0); err != nil {
-						panic(common.ProcessingError(err.Error()))
-					}
-				}
-			}
+// 				panic(err.Error())
+// 			}
 
-			res.Valid = true
+// 			// res.Valid = true
 
-			fmt.Println("oTID", oTID)
+// 			fmt.Println("oTID", oTID)
 
-			//go func() {
-			// if oTID > 0 {
-			// 	if _, err = common.G_SPEED.QueryOne(pg.Scan(&oTID2), oTID); err != nil {
+// 		} else {
+// 			//res.Valid = false
+// 		}
 
-			// 		fmt.Println("G_SPEED", err)
+// 		fmt.Println("Reading oID: ", oID)
 
-			// 		if !common.CheckDB() {
-			// 			if err = common.ConnectDB(0); err != nil {
-			// 				panic(common.ProcessingError(err.Error()))
-			// 			}
-			// 		}
-			// 	}
+// 		// res.TS = time.Now().Unix()
 
-			// 	fmt.Println("oTID2", oTID, oTID2)
-			// }
-			//}()
+// 		// if b, err = json.Marshal(res); err != nil {
+// 		// 	panic(common.ProcessingError(err.Error()))
+// 		// }
 
-		} else {
-			res.Valid = false
-		}
+// 		// w.Write(b)
+// 	} else {
+// 		// res.Valid = false
+// 		// res.TS = time.Now().Unix()
 
-		fmt.Println("Reading oID: ", oID)
+// 		// if b, err = json.Marshal(res); err != nil {
+// 		// 	b = []byte(common.ProcessingError(err.Error()))
+// 		// }
 
-		res.TS = time.Now().Unix()
+// 		// w.Write(b)
+// 	}
 
-		if b, err = json.Marshal(res); err != nil {
-			panic(common.ProcessingError(err.Error()))
-		}
+// }
 
-		w.Write(b)
-	} else {
-		res.Valid = false
-		res.TS = time.Now().Unix()
+func initConfigFile() (err error) {
+	f, err := os.Open("config.json")
 
-		if b, err = json.Marshal(res); err != nil {
-			b = []byte(common.ProcessingError(err.Error()))
-		}
-
-		w.Write(b)
+	if err != nil {
+		log.Printf("panic: Не возомжно открыть конфигурационный файл. Ошибка: %s", err.Error())
+		return
 	}
 
+	defer f.Close()
+
+	decoder := json.NewDecoder(f)
+
+	err = decoder.Decode(&env.GCONFIG)
+
+	if err != nil {
+		log.Printf("panic: Не возомжно декодировать конфигурационный файл. Ошибка: %s", err.Error())
+		return
+	}
+
+	log.Println("success: Конфигурационные данные успешно загружены.")
+
+	return
 }
