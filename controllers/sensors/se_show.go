@@ -42,7 +42,7 @@ func Show(r *http.Request) (data S_Sensor, err error) {
 	// AS
 	// $body$
 
-	if _, err = common.G_DB.QueryOne(pg.Scan(&data.Timestamp, &data.Value), query, common.G_CONFIG.SENSOR); err != nil {
+	if _, err = common.G_DB.QueryOne(pg.Scan(&data.Timestamp, &data.Value), query, common.G_CONFIG.MAC); err != nil {
 		if !common.CheckDB() {
 			if err = common.ConnectDB(0); err != nil {
 				panic(common.ProcessingError(err.Error()))
@@ -52,7 +52,7 @@ func Show(r *http.Request) (data S_Sensor, err error) {
 		panic(common.ProcessingError(err.Error()))
 	}
 
-	data.MAC = common.G_CONFIG.SENSOR
+	data.MAC = common.G_CONFIG.MAC
 
 	return
 

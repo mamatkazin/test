@@ -28,15 +28,15 @@ type Configuration struct {
 	PG_USER         string
 	PG_PASSWORD     string
 	PG_BASE         string
-	SENSOR          string
+	MAC             string
 }
 
 //const G_FOLDER_PATH = "./documents/"
 
 var (
-	G_CONFIG                   Configuration
-	G_DB                       *pg.DB
-	G_INS, G_COMPUTED, G_SPEED *pg.Stmt
+	G_CONFIG          Configuration
+	G_DB              *pg.DB
+	G_INS, G_COMPUTED *pg.Stmt
 )
 
 func ConnectDB(count int) (err error) {
@@ -91,30 +91,35 @@ func PrepareStmt() (err error) {
 		}
 	}()
 
-	if G_INS, err = G_DB.Prepare("select o_ID from nami.fn_trackdata_ins($1,$2,$3,$4)"); err != nil {
+	if G_INS, err = G_DB.Prepare("select o_ID from nami.fn_trackdata_ins($1,$2,$3,$4,$5,$6)"); err != nil {
 		panic(ProcessingError(err.Error()))
 	}
 
 	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_ins (
-	//   i_Time    timestamp,       -- время снятия показаний с прибора
-	//   i_MAC     varchar(30),     -- мак прибора
-	//   i_X       DOUBLE PRECISION,-- долгота
-	//   i_Y       DOUBLE PRECISION,-- широта
-	//   out o_ID  bigint           -- ид точки трека; (-1) если устройства нет в списке, (-2) время бьет назад
+	//  i_Time    timestamp,       -- время снятия показаний с прибора
+	//  i_MAC     varchar(30),     -- ид прибора
+	//  i_X       DOUBLE PRECISION,-- долгота
+	//  i_Y       DOUBLE PRECISION,-- широта
+	//  i_Speed   DOUBLE PRECISION,-- скорость
+	//  i_Len     DOUBLE PRECISION,-- длина пути
+	//  out o_ID  bigint          ,-- ид точки трека; (-1) если устройства нет в списке, (-2) время бьет назад
+	//  out o_t   text
 	// )
-	// AS
 
-	if G_COMPUTED, err = G_DB.Prepare("select o_TID from nami.fn_trackdata_computed($1)"); err != nil {
+	if G_COMPUTED, err = G_DB.Prepare("select o_TID, o_TL, o_TL_NII from nami.fn_trackdata_computed($1)"); err != nil {
 		panic(ProcessingError(err.Error()))
 	}
 
 	// CREATE OR REPLACE FUNCTION nami.fn_trackdata_computed (
-	//     i_TID     bigint,  -- ид точки трека
-	// OUT  o_TID     bigint   -- ид посаженной точки
+	//      i_TID     bigint,  -- ид точки трека
+	// OUT  o_TID     bigint,  -- ид посаженной точки
+	// OUT  o_HR      boolean  -- последнее значение датчика помехи
+	// )
+	// AS
 
-	if G_SPEED, err = G_DB.Prepare("select o_TID from nami.fn_trackdata_len_speed($1)"); err != nil {
-		panic(err.Error())
-	}
+	// if G_SPEED, err = G_DB.Prepare("select o_TID from nami.fn_trackdata_len_speed($1)"); err != nil {
+	// 	panic(err.Error())
+	// }
 
 	// REATE OR REPLACE FUNCTION nami.fn_trackdata_len_speed (
 	//    i_TID     bigint  -- ид точки трека
