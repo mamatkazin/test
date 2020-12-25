@@ -1,13 +1,9 @@
 package main
 
 import (
-	"fmt"
-	"io/ioutil"
+	"encoding/json"
 	"log"
-	"net/http"
 	"os"
-
-	//	"strconv"
 
 	"encoding/json"
 	//"strings"
@@ -68,14 +64,13 @@ var G_HINDRACE bool
 func main() {
 	defer func() {
 		if rec := recover(); rec != nil {
-			common.ProcessingError("Error main: " + common.GetRecoverErrorText(rec))
+			log.Printf("panic: Ошибка: %v", rec)
 		}
 	}()
 
 	var (
-		mx    *mux.Router
 		err   error
-		f_log *os.File
+		repos *repository.SRepository
 	)
 
 	G_HINDRACE = false
@@ -326,4 +321,44 @@ func sensorsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if repos, err = repository.Repository(env.GCONFIG.DBConnect); err != nil {
+		log.Printf("panic: Не возомжно подключится к серверу баз данных. Ошибка: %s", err.Error())
+		return
+	}
+
+	services := service.Service(repos)
+	handlers := handler.Handler(services)
+
+	http := handlers.InitRoutes()
+
+	log.Printf("success: port=%s\n", env.GCONFIG.AppPort)
+
+	if err = http.Run(env.GCONFIG.AppPort); err != nil {
+		log.Printf("panic: Не возомжно стартануть сервер. Ошибка: %s", err.Error())
+		return
+	}
+}
+
+func initConfigFile() (err error) {
+	f, err := os.Open("config.json")
+
+	if err != nil {
+		log.Printf("panic: Не возомжно открыть конфигурационный файл. Ошибка: %s", err.Error())
+		return
+	}
+
+	defer f.Close()
+
+	decoder := json.NewDecoder(f)
+
+	err = decoder.Decode(&env.GCONFIG)
+
+	if err != nil {
+		log.Printf("panic: Не возомжно декодировать конфигурационный файл. Ошибка: %s", err.Error())
+		return
+	}
+
+	log.Println("success: Конфигурационные данные успешно загружены.")
+
+	return
 }
